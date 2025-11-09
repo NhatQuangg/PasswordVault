@@ -13,6 +13,7 @@ sys.path.insert(0, backend_path)
 # Import local Frontend modules (same directory)
 from utils import center_toplevel_window
 from add_edit_password_window import AddEditPasswordWindow
+from change_master_password_window import ChangeMasterPasswordWindow
 
 # Import Backend modules
 try:
@@ -29,7 +30,7 @@ class MainWindow(tk.Toplevel):
         # Call the parent constructor
         super().__init__(parent_root)
         self.title("Secure Password Vault - Your Passwords")
-        self.geometry("800x500")
+        self.geometry("900x500")
         # prevent x button
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -65,7 +66,7 @@ class MainWindow(tk.Toplevel):
         self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         # Side Menu (Left Panel)
-        self.side_menu = ttk.Frame(self.main_frame, width=150)
+        self.side_menu = ttk.Frame(self.main_frame, width=210)
         self.side_menu.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
         self.side_menu.pack_propagate(False) # Prevent side_menu from shrinking
 
@@ -104,7 +105,7 @@ class MainWindow(tk.Toplevel):
         self.btn_delete.pack(fill=tk.X, pady=5, padx=5)
 
         self.btn_generate_pwd = ttk.Button(self.side_menu, text="Generate Password", command=self.generate_password)
-        self.btn_generate_pwd.pack(fill=tk.X, pady=(15, 5), padx=5)
+        self.btn_generate_pwd.pack(fill=tk.X, pady=5, padx=5)
 
         self.btn_copy_pwd = ttk.Button(self.side_menu, text="Copy Password", command=self.copy_password)
         self.btn_copy_pwd.pack(fill=tk.X, pady=5, padx=5)
@@ -117,6 +118,9 @@ class MainWindow(tk.Toplevel):
 
         self.btn_logout = ttk.Button(self.side_menu, text="Logout", command=self.logout)
         self.btn_logout.pack(side=tk.BOTTOM, fill=tk.X, pady=5, padx=5)
+
+        self.btn_change_master_pwd = ttk.Button(self.side_menu, text="Change Master Password", command=self.change_master_password)
+        self.btn_change_master_pwd.pack(side=tk.BOTTOM, fill=tk.X, pady=5, padx=5)
 
         # --- Status Bar ---
         self.status_bar = ttk.Label(self, text="Total Passwords: 0", relief=tk.SUNKEN, anchor=tk.W)
@@ -337,6 +341,17 @@ class MainWindow(tk.Toplevel):
         
     def open_settings(self):
         messagebox.showinfo("Settings", "Settings functionality not yet implemented.", parent=self)
+    
+    def change_master_password(self):
+        """Open the change master password window."""
+        change_password_window = ChangeMasterPasswordWindow(self)
+        self.wait_window(change_password_window)
+        
+        # If password was changed successfully, logout user for security
+        if change_password_window.password_changed:
+            # Automatically logout and show login window
+            self.parent_root.show_login()  # Show login window
+            self.destroy()  # Close main window
 
     def logout(self):
         if messagebox.askyesno("Logout", "Are you sure you want to log out?", parent=self):

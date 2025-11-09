@@ -242,6 +242,14 @@ class PasswordManager:
             }
     
     def change_master_password(self, current_password: str, new_password: str) -> Dict:
+        # Load master hash if not already loaded
+        if not self.master_password_hash:
+            self.load_master_hash()
+        
+        # Verify vault is unlocked (needed to re-encrypt passwords)
+        if not self.is_unlocked or not self.key:
+            return {'success': False, 'error': 'Vault must be unlocked to change master password'}
+        
         # Check
         current_hash = hashlib.sha256(current_password.encode()).hexdigest()
         if current_hash != self.master_password_hash:
