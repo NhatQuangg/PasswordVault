@@ -29,7 +29,7 @@ class AddEditPasswordWindow(tk.Toplevel):
         self.password_visible = False
 
         self.title("Add New Password" if mode == "add" else "Edit Password")
-        self.geometry("450x300")
+        self.geometry("450x320")
         self.resizable(False, False)
         self.protocol("WM_DELETE_WINDOW", self.on_cancel)
 
