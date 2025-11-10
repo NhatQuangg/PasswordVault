@@ -93,7 +93,7 @@ class ChangeMasterPasswordWindow(tk.Toplevel):
         self.button_frame = ttk.Frame(self.main_frame)
         self.button_frame.pack(fill=tk.X, side=tk.BOTTOM)
 
-        self.btn_change = ttk.Button(self.button_frame, text="Change Password", command=self.change_password, width=15)
+        self.btn_change = ttk.Button(self.button_frame, text="Change Password", command=self.change_password, width=17)
         self.btn_change.pack(side=tk.LEFT, expand=True, padx=(0, 5))
 
         self.btn_cancel = ttk.Button(self.button_frame, text="Cancel", command=self.on_cancel, width=15)
