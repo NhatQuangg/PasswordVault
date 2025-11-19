@@ -36,8 +36,14 @@ class MainWindow(tk.Toplevel):
 
         self.parent_root = parent_root  # Save reference to main app
         self.password_entries = [] # List of PasswordEntry objects
+        self.filtered_entries = [] # List of filtered password entries
         self.next_id = 1
         self.passwords_hidden = True
+                
+        # Sort and filter state
+        self.sort_by = "service"  # "service", "username", "date", "strength"
+        self.sort_order = "asc"  # "asc", "desc"
+        self.search_term = ""
 
         self.create_widgets()
 
@@ -53,33 +59,51 @@ class MainWindow(tk.Toplevel):
     def create_widgets(self):
         # TOP, fill=X: always fill horizontally
         # LEFT, fill=Y: always fill vertically
-        # --- Search Bar ---
-        self.search_frame = ttk.Frame(self)
-        self.search_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        self.search_entry = ttk.Entry(self.search_frame, width=30, font=('Arial', 10))
-        self.search_entry.pack(side=tk.RIGHT, padx=(0,5))  # CHỈ SỬ DỤNG side=RIGHT
-        self.search_entry.bind("<KeyRelease>", self.filter_passwords)
-
         # --- Main Layout: Side Menu and Treeview ---
         self.main_frame = ttk.Frame(self)
         self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         # Side Menu (Left Panel)
-        self.side_menu = ttk.Frame(self.main_frame, width=210)
+        self.side_menu = ttk.Frame(self.main_frame, width=150)
         self.side_menu.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
         self.side_menu.pack_propagate(False) # Prevent side_menu from shrinking
+
+        # --- Search and Filter Bar (aligned with tree_frame) ---
+        self.search_filter_frame = ttk.Frame(self.main_frame)
+        self.search_filter_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 5))
+        
+        # Left side: Sort and Filter controls
+        controls_left = ttk.Frame(self.search_filter_frame)
+        controls_left.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # Sort Label and Combo
+        ttk.Label(controls_left, text="Sort by:", font=('Arial', 9)).pack(side=tk.LEFT, padx=(0, 5))
+        self.sort_combo = ttk.Combobox(controls_left, width=15, state="readonly", font=('Arial', 9))
+        self.sort_combo['values'] = ("Service (A-Z)", "Service (Z-A)", "Username (A-Z)", "Username (Z-A)", 
+                                    "Date (Newest)", "Date (Oldest)", "Strength (Strong)", "Strength (Weak)")
+        self.sort_combo.set("Service (A-Z)")
+        self.sort_combo.pack(side=tk.LEFT, padx=(0, 10))
+        self.sort_combo.bind("<<ComboboxSelected>>", self.on_sort_changed)
+        
+        # Right side: Search
+        controls_right = ttk.Frame(self.search_filter_frame)
+        controls_right.pack(side=tk.RIGHT)
+        
+        ttk.Label(controls_right, text="Search:", font=('Arial', 9)).pack(side=tk.LEFT, padx=(0, 5))
+        self.search_entry = ttk.Entry(controls_right, width=30, font=('Arial', 10))
+        self.search_entry.pack(side=tk.LEFT, padx=(0,5))
+        self.search_entry.bind("<KeyRelease>", self.on_search_changed)
 
         # Treeview (Right Panel)
         self.tree_frame = ttk.Frame(self.main_frame)
         self.tree_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
         self.treeview = ttk.Treeview(self.tree_frame, columns=("Service", "Username", "Password", "Strength", "Last Updated"), show="headings")
-        self.treeview.heading("Service", text="Service/Website")
-        self.treeview.heading("Username", text="Username")
+        self.treeview.heading("Service", text="Service/Website", command=lambda: self.sort_by_column("service"))
+        self.treeview.heading("Username", text="Username", command=lambda: self.sort_by_column("username"))
         self.treeview.heading("Password", text="Password")
-        self.treeview.heading("Strength", text="Strength")
-        self.treeview.heading("Last Updated", text="Last Updated")
+        self.treeview.heading("Strength", text="Strength", command=lambda: self.sort_by_column("strength"))
+        self.treeview.heading("Last Updated", text="Last Updated", command=lambda: self.sort_by_column("date"))
 
         self.treeview.column("Service", width=150, anchor=tk.W)
         self.treeview.column("Username", width=120, anchor=tk.W)
@@ -105,7 +129,7 @@ class MainWindow(tk.Toplevel):
         self.btn_delete.pack(fill=tk.X, pady=5, padx=5)
 
         self.btn_generate_pwd = ttk.Button(self.side_menu, text="Generate Password", command=self.generate_password)
-        self.btn_generate_pwd.pack(fill=tk.X, pady=5, padx=5)
+        self.btn_generate_pwd.pack(fill=tk.X, pady=(15, 5), padx=5)
 
         self.btn_copy_pwd = ttk.Button(self.side_menu, text="Copy Password", command=self.copy_password)
         self.btn_copy_pwd.pack(fill=tk.X, pady=5, padx=5)
@@ -121,6 +145,8 @@ class MainWindow(tk.Toplevel):
 
         self.btn_change_master_pwd = ttk.Button(self.side_menu, text="Change Master Password", command=self.change_master_password)
         self.btn_change_master_pwd.pack(side=tk.BOTTOM, fill=tk.X, pady=5, padx=5)
+
+
 
         # --- Status Bar ---
         self.status_bar = ttk.Label(self, text="Total Passwords: 0", relief=tk.SUNKEN, anchor=tk.W)
@@ -193,13 +219,16 @@ class MainWindow(tk.Toplevel):
             self.refresh_treeview()
 
     def refresh_treeview(self):
-        """Update the Treeview with current password entries"""
+        """Update the Treeview with current password entries (applies filter, sort, and search)"""
+        # Apply filters and sorting
+        self.apply_filters_and_sort()
+        
         # Clear all existing items
         for i in self.treeview.get_children():
             self.treeview.delete(i)
 
-        # Add new data
-        for entry in self.password_entries:
+        # Add filtered and sorted data
+        for entry in self.filtered_entries:
             display_password = entry.password if not self.passwords_hidden else "********"
             self.treeview.insert("", tk.END, values=(
                 entry.service,
@@ -240,6 +269,11 @@ class MainWindow(tk.Toplevel):
 
             # Get the PasswordEntry object based on iid
             selected_id = int(selected_item_id)
+            # Search in filtered_entries first (current view), then fallback to all entries
+            for entry in self.filtered_entries:
+                if entry.id == selected_id:
+                    return entry
+            # Fallback to all entries if not found in filtered (shouldn't happen, but safety check)
             for entry in self.password_entries:
                 if entry.id == selected_id:
                     return entry
@@ -358,27 +392,92 @@ class MainWindow(tk.Toplevel):
             self.parent_root.show_login() # Call function in main app to show login
             self.destroy() # Close main window
 
-    def filter_passwords(self, event=None):
-        search_term = self.search_entry.get().lower()
-
-        # Clear all existing items
-        for i in self.treeview.get_children():
-            self.treeview.delete(i)
-
-        filtered_count = 0
-        for entry in self.password_entries:
-            if search_term in entry.service.lower() or search_term in entry.username.lower():
-                display_password = entry.password if not self.passwords_hidden else "********"
-                self.treeview.insert("", tk.END, values=(
-                    entry.service, 
-                    entry.username, 
-                    display_password, 
-                    entry.strength, 
-                    entry.last_updated.strftime("%Y-%m-%d")
-                ), iid=entry.id)
-                filtered_count += 1
+    def apply_filters_and_sort(self):
+        """Apply search filter and sorting to password entries"""
+        # Start with all entries
+        filtered = list(self.password_entries)
         
-        self.status_bar.config(text=f"Displayed Passwords: {filtered_count} / Total: {len(self.password_entries)}")
+        # Apply search filter
+        if self.search_term:
+            search_lower = self.search_term.lower()
+            filtered = [entry for entry in filtered 
+                       if search_lower in entry.service.lower() 
+                       or search_lower in entry.username.lower()]
+        
+        # Apply sorting
+        if self.sort_by == "service":
+            filtered.sort(key=lambda x: x.service.lower(), reverse=(self.sort_order == "desc"))
+        elif self.sort_by == "username":
+            filtered.sort(key=lambda x: x.username.lower(), reverse=(self.sort_order == "desc"))
+        elif self.sort_by == "date":
+            filtered.sort(key=lambda x: x.last_updated, reverse=(self.sort_order == "desc"))
+        elif self.sort_by == "strength":
+            # Sort by strength: Strong > Medium > Weak
+            strength_order = {"strong": 3, "medium": 2, "weak": 1, "very strong": 4, "very weak": 0}
+            filtered.sort(key=lambda x: strength_order.get(x.strength.lower() if x.strength else "", 0), reverse=(self.sort_order == "desc"))
+        
+        self.filtered_entries = filtered
+    
+    def on_sort_changed(self, event=None):
+        """Handle sort change"""
+        sort_value = self.sort_combo.get()
+        
+        if "Service (A-Z)" in sort_value:
+            self.sort_by = "service"
+            self.sort_order = "asc"
+        elif "Service (Z-A)" in sort_value:
+            self.sort_by = "service"
+            self.sort_order = "desc"
+        elif "Username (A-Z)" in sort_value:
+            self.sort_by = "username"
+            self.sort_order = "asc"
+        elif "Username (Z-A)" in sort_value:
+            self.sort_by = "username"
+            self.sort_order = "desc"
+        elif "Date (Newest)" in sort_value:
+            self.sort_by = "date"
+            self.sort_order = "desc"
+        elif "Date (Oldest)" in sort_value:
+            self.sort_by = "date"
+            self.sort_order = "asc"
+        elif "Strength (Strong)" in sort_value:
+            self.sort_by = "strength"
+            self.sort_order = "desc"
+        elif "Strength (Weak)" in sort_value:
+            self.sort_by = "strength"
+            self.sort_order = "asc"
+        
+        self.refresh_treeview()
+    
+    def on_search_changed(self, event=None):
+        """Handle search entry change"""
+        self.search_term = self.search_entry.get().strip()
+        self.refresh_treeview()
+    
+    def sort_by_column(self, column):
+        """Handle column header click for sorting"""
+        # If clicking the same column, toggle order
+        if self.sort_by == column:
+            self.sort_order = "desc" if self.sort_order == "asc" else "asc"
+        else:
+            self.sort_by = column
+            self.sort_order = "asc"
+        
+        # Update combo box to reflect current sort
+        if column == "service":
+            self.sort_combo.set("Service (Z-A)" if self.sort_order == "desc" else "Service (A-Z)")
+        elif column == "username":
+            self.sort_combo.set("Username (Z-A)" if self.sort_order == "desc" else "Username (A-Z)")
+        elif column == "date":
+            self.sort_combo.set("Date (Newest)" if self.sort_order == "desc" else "Date (Oldest)")
+        elif column == "strength":
+            self.sort_combo.set("Strength (Strong)" if self.sort_order == "desc" else "Strength (Weak)")
+        
+        self.refresh_treeview()
+    
+    def filter_passwords(self, event=None):
+        """Legacy method - redirects to new search handler"""
+        self.on_search_changed(event)
 
     def on_close(self):
         """Handle the close event of the main window."""
