@@ -19,7 +19,8 @@ from change_master_password_window import ChangeMasterPasswordWindow
 try:
     from password_entry import PasswordEntry
     from vault_api import (get_all_passwords, add_password, update_password, delete_password,
-                          generate_strong_password, prepare_password_list)
+                          generate_strong_password, prepare_password_list, 
+                          register_activity, get_auto_lock_status, set_auto_lock_callback, lock_vault)
 except ImportError as e:
     messagebox.showerror("Import Error", f"Failed to import Backend modules: {e}")
     sys.exit(1)
@@ -44,6 +45,11 @@ class MainWindow(tk.Toplevel):
         self.sort_by = "service"  # "service", "username", "date", "strength"
         self.sort_order = "asc"  # "asc", "desc"
         self.search_term = ""
+        
+        self.auto_lock_timer_id = None
+        self.last_activity_register_time = 0
+        self.activity_debounce_seconds = 10  # Only register activity every 5 seconds max
+        self.setup_auto_lock()
 
         self.create_widgets()
 
@@ -51,7 +57,10 @@ class MainWindow(tk.Toplevel):
         self.load_passwords_from_backend()
 
         self.update_status_message()
-        self.hide_passwords_in_treeview() # Hide passwords on startup
+        self.hide_passwords_in_treeview()
+
+        self.bind_all("<Button-1>", lambda e: self.register_user_activity())
+        self.bind_all("<KeyPress>", lambda e: self.register_user_activity())
 
         self.update_idletasks()
         center_toplevel_window(self, None)
@@ -149,8 +158,14 @@ class MainWindow(tk.Toplevel):
 
 
         # --- Status Bar ---
-        self.status_bar = ttk.Label(self, text="Total Passwords: 0", relief=tk.SUNKEN, anchor=tk.W)
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.status_bar_frame = ttk.Frame(self)
+        self.status_bar_frame.pack(side=tk.BOTTOM, fill=tk.X)
+
+        self.status_bar = ttk.Label(self.status_bar_frame, text="Total Passwords: 0", relief=tk.SUNKEN, anchor=tk.W)
+        self.status_bar.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.auto_lock_label = ttk.Label(self.status_bar_frame, text="", relief=tk.SUNKEN, anchor=tk.E)
+        self.auto_lock_label.pack(side=tk.RIGHT, fill=tk.X, padx=(5, 0))
 
     def load_passwords_from_backend(self):
         try:
@@ -284,6 +299,8 @@ class MainWindow(tk.Toplevel):
 
 
     def add_password(self):
+        self.register_user_activity()
+
         add_edit_window = AddEditPasswordWindow(self, mode="add")
         self.wait_window(add_edit_window) # wait until window is closed
 
@@ -301,6 +318,7 @@ class MainWindow(tk.Toplevel):
                 if result.get('success'):
                     # Reload passwords from Backend to ensure sync
                     self.load_passwords_from_backend()
+                    self.register_user_activity()
                     messagebox.showinfo("Success", "Password added successfully!", parent=self)
                 else:
                     messagebox.showerror("Error", result.get('error', 'Failed to add password'), parent=self)
@@ -310,6 +328,7 @@ class MainWindow(tk.Toplevel):
     def edit_password(self):
         selected_entry = self.get_selected_password_entry()
         if selected_entry:
+            self.register_user_activity()
             add_edit_window = AddEditPasswordWindow(self, mode="edit", entry_data=selected_entry)
             self.wait_window(add_edit_window)
             
@@ -328,6 +347,7 @@ class MainWindow(tk.Toplevel):
                     if result.get('success'):
                         # Reload passwords from Backend to ensure sync
                         self.load_passwords_from_backend()
+                        self.register_user_activity()
                         messagebox.showinfo("Success", "Password updated successfully!", parent=self)
                     else:
                         messagebox.showerror("Error", result.get('error', 'Failed to update password'), parent=self)
@@ -337,6 +357,7 @@ class MainWindow(tk.Toplevel):
     def delete_password(self):
         selected_entry = self.get_selected_password_entry()
         if selected_entry:
+            self.register_user_activity()
             if messagebox.askyesno("Confirm Delete",
                                    f"Are you sure you want to delete the password for '{selected_entry.service}'?",
                                    parent=self):
@@ -347,6 +368,7 @@ class MainWindow(tk.Toplevel):
                     if result.get('success'):
                         # Reload passwords from Backend to ensure sync
                         self.load_passwords_from_backend()
+                        self.register_user_activity()
                         messagebox.showinfo("Success", "Password deleted successfully!", parent=self)
                     else:
                         messagebox.showerror("Error", result.get('error', 'Failed to delete password'), parent=self)
@@ -354,12 +376,14 @@ class MainWindow(tk.Toplevel):
                     messagebox.showerror("Error", f"Failed to delete password: {str(e)}", parent=self)
 
     def generate_password(self):
+        self.register_user_activity()
         try:
             generated_password = generate_strong_password()
             if generated_password:
                 # Copy to clipboard for easy use
                 self.clipboard_clear()
                 self.clipboard_append(generated_password)
+                self.register_user_activity()
                 messagebox.showinfo("Generated", f"Strong password generated and copied to clipboard!\n\nPassword: {generated_password}", parent=self)
             else:
                 messagebox.showerror("Error", "Failed to generate password", parent=self)
@@ -369,8 +393,10 @@ class MainWindow(tk.Toplevel):
     def copy_password(self):
         selected_entry = self.get_selected_password_entry()
         if selected_entry:
+            self.register_user_activity()
             self.clipboard_clear()
             self.clipboard_append(selected_entry.password)
+            self.register_user_activity()
             messagebox.showinfo("Copied", "Password copied to clipboard!", parent=self)
         
     def open_settings(self):
@@ -378,14 +404,16 @@ class MainWindow(tk.Toplevel):
     
     def change_master_password(self):
         """Open the change master password window."""
+        self.register_user_activity()
         change_password_window = ChangeMasterPasswordWindow(self)
         self.wait_window(change_password_window)
         
         # If password was changed successfully, logout user for security
         if change_password_window.password_changed:
             # Automatically logout and show login window
-            self.parent_root.show_login()  # Show login window
-            self.destroy()  # Close main window
+            self.stop_auto_lock_monitor()
+            self.parent_root.show_login() 
+            self.destroy()
 
     def logout(self):
         if messagebox.askyesno("Logout", "Are you sure you want to log out?", parent=self):
@@ -479,6 +507,59 @@ class MainWindow(tk.Toplevel):
         """Legacy method - redirects to new search handler"""
         self.on_search_changed(event)
 
+    def setup_auto_lock(self):
+        set_auto_lock_callback(self.handle_auto_lock)
+
+        self.update_auto_lock_status()
+        self.start_auto_lock_monitor()
+
+        register_activity()
+    
+    def handle_auto_lock(self):
+        self.after(0, self._handle_auto_lock_ui)
+    
+    def _handle_auto_lock_ui(self):
+        messagebox.showinfo("Auto-Lock", "Your vault has been automatically locked due to inactivity.", parent=self)
+
+        self.stop_auto_lock_monitor()
+        self.parent_root.show_login()
+        self.destroy()
+
+    def start_auto_lock_monitor(self):
+        self.update_auto_lock_status()
+
+        self.auto_lock_timer_id = self.after(1000, self.start_auto_lock_monitor) 
+
+    def stop_auto_lock_monitor(self):
+        if self.auto_lock_timer_id:
+            self.after_cancel(self.auto_lock_timer_id)
+            self.auto_lock_timer_id = None
+    
+    def update_auto_lock_status(self):
+        try:
+            status = get_auto_lock_status()
+            if status.get('success') and status.get('active'):
+                time_remaining = status.get('formatted_time', '0:00')
+                self.auto_lock_label.config(text=f"Auto-Lock: {time_remaining}")
+            else:
+                self.auto_lock_label.config(text="")
+        except Exception as e:
+            pass
+
+    def register_user_activity(self):
+        import time
+        current_time = time.time()
+
+        if current_time - self.last_activity_register_time < self.activity_debounce_seconds:
+            return
+        
+        try:
+            register_activity()
+            self.last_activity_register_time = current_time
+        except Exception as e:
+            pass
+
     def on_close(self):
         """Handle the close event of the main window."""
+        self.stop_auto_lock_monitor()
         self.parent_root.on_app_close() # Call the main app's close function

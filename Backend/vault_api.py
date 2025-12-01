@@ -94,6 +94,9 @@ def get_auto_lock_status():
 def register_activity():
     return get_vault_instance().register_activity()
 
+def set_auto_lock_callback(callback):
+    return get_vault_instance().set_auto_lock_callback(callback)
+
 #
 # MISC
 #
