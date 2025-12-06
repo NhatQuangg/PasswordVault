@@ -28,9 +28,10 @@ class PasswordManager:
         
         # Auto-lock functionality
         self.auto_lock_minutes = 5
-        self.auto_lock_active = False
+        self.auto_lock_active = True
         self.last_activity_time = None
         self.auto_lock_timer = None
+        self.auto_lock_callback = None
         
         # Check if vault exists
         self.vault_exists = self.check_vault_exists()
@@ -242,6 +243,14 @@ class PasswordManager:
             }
     
     def change_master_password(self, current_password: str, new_password: str) -> Dict:
+        # Load master hash if not already loaded
+        if not self.master_password_hash:
+            self.load_master_hash()
+        
+        # Verify vault is unlocked (needed to re-encrypt passwords)
+        if not self.is_unlocked or not self.key:
+            return {'success': False, 'error': 'Vault must be unlocked to change master password'}
+        
         # Check
         current_hash = hashlib.sha256(current_password.encode()).hexdigest()
         if current_hash != self.master_password_hash:
@@ -572,6 +581,14 @@ class PasswordManager:
     
     def _auto_lock(self):
         self.lock_vault()
+        if self.auto_lock_callback:
+            try:
+                self.auto_lock_callback()
+            except Exception as e:
+                print(f"Auto-lock callback error: {e}")
+    
+    def set_auto_lock_callback(self, callback):
+        self.auto_lock_callback = callback
     
     def _format_time_remaining(self, seconds: float) -> str:
         minutes = int(seconds // 60)
