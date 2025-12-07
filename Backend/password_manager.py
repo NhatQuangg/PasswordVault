@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from typing import Dict
 from cryptography.fernet import Fernet
-from password_entry import PasswordEntry
+from Backend.password_entry import PasswordEntry
 
 class PasswordManager:
     def __init__(self):
@@ -23,7 +23,7 @@ class PasswordManager:
         # File paths (relative to project root)
         # Get project root (parent of Backend directory)
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.key_path = os.path.join(project_root, "testkey.key")
+        self.key_path = os.path.join(project_root, "key.key")
         self.database_path = os.path.join(project_root, "vault.db")
         
         # Auto-lock functionality

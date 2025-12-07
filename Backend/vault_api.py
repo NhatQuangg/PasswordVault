@@ -1,4 +1,4 @@
-from password_manager import PasswordManager
+from Backend.password_manager import PasswordManager
 
 _vault_instance = None
 
